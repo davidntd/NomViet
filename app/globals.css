@@ -1,0 +1,127 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-serif: var(--font-noto-serif), "Noto Serif", ui-serif, Georgia, serif;
+  --font-sans: var(--font-serif);
+  --animate-slide-in-right: slideInRight 0.35s ease-out;
+  --animate-slide-in-left: slideInLeft 0.35s ease-out;
+}
+
+/*
+ * Quốc Âm Tân Tự (QATT) characters live in the Supplementary Private Use
+ * Area (U+100000 … U+105D95) and are only available from the embedded
+ * GotichQATT font. Loading it via @font-face (instead of relying on a
+ * locally installed font) keeps rendering consistent across Windows, macOS,
+ * Linux, Android and iOS.
+ */
+@font-face {
+  font-family: "GotichQATT";
+  src: url("/fonts/GotichQATT.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Chữ Nôm characters are CJK ideographs; render them with the common
+   Nôm/CJK fonts found on various platforms (a bundled CJK webfont would
+   add megabytes, so we intentionally rely on these system fonts). */
+.font-han {
+  font-family: "Nom Na Tong", "Han Nom A", "Han Nom B", "Noto Serif CJK SC",
+    "Source Han Serif SC", "BabelStone Han", "HanaMinA", "HanaMinB", "PingFang SC",
+    "Hiragino Mincho ProN", "Yu Mincho", "Microsoft YaHei", "SimSun",
+    var(--font-noto-serif), ui-serif, Georgia, serif;
+}
+
+/* Quốc Âm Tân Tự text: GotichQATT is the only font that covers the PUA
+   syllable characters, with a serif fallback for anything it lacks. */
+.font-qatt {
+  font-family: "GotichQATT", var(--font-noto-serif), "Noto Serif", ui-serif, Georgia, serif;
+}
+
+body {
+  position: relative;
+  font-family: var(--font-serif);
+  background-color: #faf6ee;
+}
+
+/* Visible keyboard focus for every interactive element (buttons, links,
+   inputs, selects) without relying on element-specific focus colors. */
+:focus-visible {
+  outline: 2px solid #a00000;
+  outline-offset: 2px;
+}
+
+/* Dark-red halo behind light text so it stays readable over the gold
+   artwork layers in the header/footer backgrounds. */
+.text-halo {
+  text-shadow: 0 1px 2px rgba(90, 0, 0, 0.9), 0 0 10px rgba(90, 0, 0, 0.55);
+}
+
+main {
+  flex: 1;
+}
+
+.pattern-surround {
+  position: relative;
+  isolation: isolate;
+}
+
+.pattern-surround > * {
+  position: relative;
+  z-index: 1;
+}
+
+.pattern-surround::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: url("/patterns/page-background.png") center 45% / cover no-repeat;
+  /* background-attachment: fixed is omitted — it forces scroll repaints and is
+     buggy on mobile Safari; the fixed-position pseudo-element already pins it. */
+  transform: scale(1.05);
+  opacity: 0.15;
+  filter: sepia(0.9) saturate(2.8) hue-rotate(325deg) brightness(0.95);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .motion-safe\:animate-\[fadeIn_0\.3s_ease-out\],
+  .motion-safe\:animate-slide-in-right,
+  .motion-safe\:animate-slide-in-left {
+    animation: none !important;
+  }
+}
