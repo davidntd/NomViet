@@ -75,7 +75,7 @@ export const en = {
   translateTitle: "Translate",
   translateDescription: "Convert between Vietnamese and Chữ Nôm",
   vietnamese: "Vietnamese",
-  chuNom: "Chữ Nôm",
+  chuNom: "Quốc Âm Tân Tự and Nôm",
   typeVietnamese: "Type Vietnamese text...",
   pasteChuNom: "Paste Chữ Nôm characters...",
   translationWillAppear: "Translation will appear here...",

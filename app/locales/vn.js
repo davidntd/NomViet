@@ -75,7 +75,7 @@ export const vn = {
   translateTitle: "Phiên Dịch",
   translateDescription: "Chuyển đổi giữa tiếng Việt và Chữ Nôm",
   vietnamese: "Tiếng Việt",
-  chuNom: "Chữ Nôm",
+  chuNom: "Quốc Âm Tân Tự và Nôm",
   typeVietnamese: "Nhập văn bản tiếng Việt...",
   pasteChuNom: "Dán chữ Nôm...",
   translationWillAppear: "Bản dịch sẽ xuất hiện ở đây...",
