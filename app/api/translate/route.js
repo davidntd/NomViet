@@ -6,6 +6,9 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 );
 
+const SELECT_FIELDS =
+  "character, han_viet_reading, nom_reading, definition, han_viet_definition, nom_definition";
+
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const reading = searchParams.get("reading");
@@ -13,32 +16,21 @@ export async function GET(request) {
 
   try {
     if (reading) {
+      // Match Nôm readings only — Hán Việt readings are not used for
+      // translation candidates (they're rarely recognized in modern Vietnamese).
       const { data, error } = await supabase
         .from("Character")
-        .select("character, han_viet_reading, nom_reading, definition, han_viet_definition, nom_definition")
+        .select(SELECT_FIELDS)
         .contains("nom_reading", [reading])
         .limit(10);
 
       if (error) throw error;
 
-      let results = data || [];
-
-      if (results.length === 0) {
-        const { data: hanMatches, error: hanError } = await supabase
-          .from("Character")
-          .select("character, han_viet_reading, nom_reading, definition, han_viet_definition, nom_definition")
-          .contains("han_viet_reading", [reading])
-          .limit(10);
-
-        if (hanError) throw hanError;
-        results = hanMatches || [];
-      }
-
       return Response.json({
-        results: results.map((row) => ({
+        results: (data || []).map((row) => ({
           ...row,
-          reading: formatReadingList(row.nom_reading) || formatReadingList(row.han_viet_reading),
-          definition: row.definition || row.han_viet_definition || row.nom_definition,
+          reading: formatReadingList(row.nom_reading),
+          definition: row.definition || row.nom_definition,
         })),
       });
     }
@@ -46,7 +38,7 @@ export async function GET(request) {
     if (character) {
       const { data, error } = await supabase
         .from("Character")
-        .select("character, han_viet_reading, nom_reading, definition, han_viet_definition, nom_definition")
+        .select(SELECT_FIELDS)
         .eq("character", character)
         .single();
 

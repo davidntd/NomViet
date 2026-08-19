@@ -322,13 +322,13 @@ function SearchContent() {
                 return (
                 <Link
                   key={char.id}
-                  href={`/character/${char.unicode.replace("U+", "")}?lang=${language}`}
+                  href={`/character/${char.id}?lang=${language}`}
                   className="group flex items-center gap-4 rounded-xl border border-gray-200 bg-gray-50 p-4 transition-all hover:border-[#a00000]/40 hover:shadow-sm"
                 >
                   <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-200 bg-white">
                     {hasCharacterImage(char) ? (
                       <img
-                        src={char.image}
+                        src={char.character}
                         alt={char.character}
                         loading="lazy"
                         decoding="async"
@@ -353,7 +353,7 @@ function SearchContent() {
                       {displayDefinition(char, language)}
                     </p>
                     <p className="mt-1 font-mono text-xs text-gray-500">
-                      {char.unicode} · {char.stroke_count} {t.strokesUnit}
+                      {char.stroke_count} {t.strokesUnit}
                     </p>
                   </div>
                   <svg

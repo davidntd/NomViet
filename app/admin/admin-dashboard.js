@@ -9,6 +9,7 @@ import {
   characterMatchesAlphabetFilter,
   VIET_ALPHABET_FILTERS,
   isAllowedImageFile,
+  isCharacterImage,
   isGifImage,
   sortCharacters,
 } from "../lib/character";
@@ -21,74 +22,74 @@ const emptyForm = {
   han_viet_definition: "",
   nom_definition: "",
   stroke_count: "",
-  unicode: "",
   image: "",
   variants: "",
 };
 
 const TABLE_FIELDS = [
-  { key: "character", label: "Character", className: "min-w-[4rem] font-han" },
+  { key: "character", label: "Character / Image", className: "min-w-[10rem] font-han" },
   { key: "han_viet_reading", label: "Hán Việt", className: "min-w-[8rem]" },
   { key: "nom_reading", label: "Nôm", className: "min-w-[8rem]" },
   { key: "definition", label: "English Def.", className: "min-w-[10rem]" },
   { key: "han_viet_definition", label: "HV Def.", className: "min-w-[10rem]" },
   { key: "nom_definition", label: "Nôm Def.", className: "min-w-[10rem]" },
   { key: "stroke_count", label: "Strokes", className: "min-w-[4.5rem]" },
-  { key: "unicode", label: "Unicode", className: "min-w-[6rem] font-mono text-xs" },
-  { key: "image", label: "Image URL", className: "min-w-[10rem]" },
   { key: "variants", label: "Variants", className: "min-w-[8rem]" },
 ];
 
 const FORM_FIELDS = [
-  { name: "character", label: "Character", placeholder: "𬙞", required: true },
+  { name: "character", label: "Character / Image", placeholder: "𬙞 — or add a picture below", required: false, bigGlyph: true },
   { name: "han_viet_reading", label: "Hán Việt Reading", placeholder: "thất (comma separated)", required: false },
   { name: "nom_reading", label: "Nôm Reading", placeholder: "bảy, bay (comma separated)", required: false },
   { name: "definition", label: "English Definition", placeholder: "number seven", required: false },
   { name: "han_viet_definition", label: "Hán Việt Definition", placeholder: "số bảy (Hán Việt)", required: false },
   { name: "nom_definition", label: "Nôm Definition", placeholder: "số bảy (Nôm)", required: false },
   { name: "stroke_count", label: "Stroke Count", placeholder: "12", type: "number", required: true },
-  { name: "unicode", label: "Unicode", placeholder: "U+2C65E", required: true },
   { name: "variants", label: "Variants / Forms", placeholder: "Alternate forms as characters, comma separated", required: false },
 ];
 
 const ITEMS_PER_PAGE = 50;
 
 function characterToDraft(char) {
+  const value = char.character || "";
+  const isImage = isCharacterImage(value);
   return {
-    character: char.character || "",
+    // The character column holds either the glyph or an image URL — split them
+    // into separate editable fields in the UI (glyph wins when both set).
+    character: isImage ? "" : value,
     han_viet_reading: formatReadingList(char.han_viet_reading),
     nom_reading: formatReadingList(char.nom_reading),
     definition: char.definition || "",
     han_viet_definition: char.han_viet_definition || "",
     nom_definition: char.nom_definition || "",
     stroke_count: String(char.stroke_count ?? ""),
-    unicode: char.unicode || "",
-    image: char.image || "",
+    image: isImage ? value : "",
     variants: char.variants?.join(", ") || "",
   };
 }
 
 function draftToPayload(draft) {
   return {
-    character: draft.character.trim(),
+    character: draft.character.trim() || draft.image.trim(),
     han_viet_reading: draft.han_viet_reading.split(",").map((r) => r.trim()).filter(Boolean),
     nom_reading: draft.nom_reading.split(",").map((r) => r.trim()).filter(Boolean),
     definition: draft.definition.trim(),
     han_viet_definition: draft.han_viet_definition.trim(),
     nom_definition: draft.nom_definition.trim(),
     stroke_count: Number.parseInt(draft.stroke_count, 10) || 0,
-    unicode: draft.unicode.trim().toUpperCase(),
-    image: draft.image.trim() || null,
     variants: draft.variants ? draft.variants.split(",").map((v) => v.trim()).filter(Boolean) : [],
   };
 }
 
+// Comparison includes the image pseudo-field so image-only edits count as changes.
+const COMPARE_FIELDS = [...TABLE_FIELDS, { key: "image", label: "Image" }];
+
 function draftsEqual(a, b) {
-  return TABLE_FIELDS.every(({ key }) => String(a[key] ?? "") === String(b[key] ?? ""));
+  return COMPARE_FIELDS.every(({ key }) => String(a[key] ?? "") === String(b[key] ?? ""));
 }
 
 function getChangedFields(base, draft) {
-  return TABLE_FIELDS.filter(({ key }) => String(base[key] ?? "") !== String(draft[key] ?? ""));
+  return COMPARE_FIELDS.filter(({ key }) => String(base[key] ?? "") !== String(draft[key] ?? ""));
 }
 
 async function readJsonResponse(response) {
@@ -157,7 +158,6 @@ function AddCharacterModal({
 }) {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
-  const [imageMode, setImageMode] = useState("url");
   const [imageFile, setImageFile] = useState(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState(null);
   const fileInputRef = useRef(null);
@@ -167,7 +167,6 @@ function AddCharacterModal({
       // Deferred out of the synchronous effect body (React's set-state-in-effect rule).
       const id = setTimeout(() => {
         setForm(emptyForm);
-        setImageMode("url");
         setImageFile(null);
       }, 0);
       return () => clearTimeout(id);
@@ -202,8 +201,6 @@ function AddCharacterModal({
       alert("GIF images are not allowed. Use PNG, JPG, WEBP, or SVG.");
       return;
     }
-    setImageMode("file");
-    setForm((prev) => ({ ...prev, image: "" }));
     setImageFile(file);
   };
 
@@ -220,7 +217,7 @@ function AddCharacterModal({
   };
 
   const uploadImage = async () => {
-    if (!imageFile) return form.image;
+    if (!imageFile) return "";
     return uploadAdminImage(imageFile);
   };
 
@@ -228,10 +225,11 @@ function AddCharacterModal({
     e.preventDefault();
     setSaving(true);
     try {
-      const imageUrl = imageMode === "file" ? await uploadImage() : form.image.trim();
+      const imageUrl = await uploadImage();
       if (imageUrl && isGifImage(imageUrl)) throw new Error("GIF image URLs are not allowed.");
+      if (!form.character.trim() && !imageUrl) throw new Error("Enter a character glyph or add a picture.");
 
-      await adminCharacterRequest("POST", { ...draftToPayload(form), image: imageUrl || null });
+      await adminCharacterRequest("POST", draftToPayload({ ...form, image: imageUrl }));
       onSaved();
       onClose();
     } catch (err) {
@@ -260,74 +258,62 @@ function AddCharacterModal({
                 {field.label}
                 {field.required && <span className="ml-1 text-red-400">*</span>}
               </label>
-              <input
-                type={field.type || "text"}
-                name={field.name}
-                value={form[field.name]}
-                onChange={handleChange}
-                placeholder={field.placeholder}
-                required={field.required}
-                className="w-full rounded-lg border-2 border-[#d4b96a] px-4 py-2.5 text-sm text-black outline-none focus:border-[#a00000]"
-              />
+
+              {field.bigGlyph ? (
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="text"
+                    name={field.name}
+                    value={form[field.name]}
+                    onChange={handleChange}
+                    placeholder={field.placeholder}
+                    className="w-full rounded-lg border-2 border-[#d4b96a] px-4 py-2.5 text-2xl text-black outline-none focus:border-[#a00000]"
+                  />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    onPaste={handleImagePaste}
+                    tabIndex={0}
+                    className="cursor-pointer rounded-lg border-2 border-dashed border-amber-200 px-4 py-5 text-center text-sm text-gray-400 hover:border-[#a00000]"
+                  >
+                    {imageFile ? (
+                      <div className="flex flex-col items-center gap-2">
+                        {imagePreviewUrl && <img src={imagePreviewUrl} alt="" className="max-h-24 object-contain" />}
+                        <span className="text-gray-700">{imageFile.name}</span>
+                      </div>
+                    ) : (
+                      "Upload or paste (Ctrl+V) a picture of the character"
+                    )}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) => {
+                        assignImageFile(e.target.files?.[0] || null);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Will be saved as:{" "}
+                    <span className="font-semibold text-gray-600">
+                      {form.character.trim() || (imageFile ? "picture of the character" : "—")}
+                    </span>
+                  </p>
+                </div>
+              ) : (
+                <input
+                  type={field.type || "text"}
+                  name={field.name}
+                  value={form[field.name]}
+                  onChange={handleChange}
+                  placeholder={field.placeholder}
+                  required={field.required}
+                  className="w-full rounded-lg border-2 border-[#d4b96a] px-4 py-2.5 text-sm text-black outline-none focus:border-[#a00000]"
+                />
+              )}
             </div>
           ))}
-
-          <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-widest text-[#a00000]">Image</label>
-            <div className="mb-2 flex gap-2">
-              <button
-                type="button"
-                onClick={() => { setImageMode("url"); setImageFile(null); }}
-                className={`flex-1 rounded-lg border-2 py-2 text-sm ${imageMode === "url" ? "border-[#a00000] bg-red-50 text-[#a00000]" : "border-gray-200 text-gray-400"}`}
-              >
-                URL
-              </button>
-              <button
-                type="button"
-                onClick={() => { setImageMode("file"); setForm({ ...form, image: "" }); }}
-                className={`flex-1 rounded-lg border-2 py-2 text-sm ${imageMode === "file" ? "border-[#a00000] bg-red-50 text-[#a00000]" : "border-gray-200 text-gray-400"}`}
-              >
-                Upload / Paste
-              </button>
-            </div>
-            {imageMode === "url" ? (
-              <input
-                type="text"
-                name="image"
-                value={form.image}
-                onChange={handleChange}
-                onPaste={handleImagePaste}
-                placeholder="https://... or paste image (Ctrl+V)"
-                className="w-full rounded-lg border-2 border-gray-200 px-4 py-2.5 text-sm outline-none focus:border-[#a00000]"
-              />
-            ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                onPaste={handleImagePaste}
-                tabIndex={0}
-                className="cursor-pointer rounded-lg border-2 border-dashed border-amber-200 px-4 py-6 text-center text-sm text-gray-400 hover:border-[#a00000]"
-              >
-                {imageFile ? (
-                  <div className="flex flex-col items-center gap-2">
-                    {imagePreviewUrl && <img src={imagePreviewUrl} alt="" className="max-h-24 object-contain" />}
-                    <span className="text-gray-700">{imageFile.name}</span>
-                  </div>
-                ) : (
-                  "Click to upload or paste (Ctrl+V)"
-                )}
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp,image/svg+xml"
-                  className="hidden"
-                  onChange={(e) => {
-                    assignImageFile(e.target.files?.[0] || null);
-                    e.target.value = "";
-                  }}
-                />
-              </div>
-            )}
-          </div>
 
           <div className="mt-2 flex gap-3">
             <button
@@ -386,7 +372,7 @@ function ViewChangesModal({ open, onClose, changes }) {
                 >
                   <div className="flex items-baseline gap-2">
                     <span className="font-han text-xl text-[#a00000]">{char.character}</span>
-                    <span className="font-mono text-xs text-gray-500">{char.unicode}</span>
+                    {isCharacterImage(char.character) && <img src={char.character} alt="" className="h-8 w-8 rounded border border-amber-100 object-contain" />}
                   </div>
                   <p className="mt-1 text-xs text-gray-600">
                     Changed: {changedFields.map((f) => f.label).join(", ")}
@@ -697,7 +683,7 @@ export default function AdminDashboard({ email, onSignOut }) {
 
         <input
           type="text"
-          placeholder="Search by reading, character, unicode, or definition..."
+          placeholder="Search by reading, character, or definition..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="mb-4 w-full rounded-xl border-2 border-[#d4b96a] bg-white px-4 py-3 text-sm text-black outline-none focus:border-[#a00000]"
@@ -765,15 +751,45 @@ export default function AdminDashboard({ email, onSignOut }) {
                         </td>
                         {TABLE_FIELDS.map((col) => (
                           <td key={col.key} className="border-b border-amber-50 px-1 py-1 align-top">
-                            <input
-                              type={col.key === "stroke_count" ? "number" : "text"}
-                              value={col.key === "image" && imageUploadingIds.has(char.id) ? "Uploading..." : draft[col.key]}
-                              onChange={(e) => updateCell(char.id, col.key, e.target.value)}
-                              onPaste={col.key === "image" ? (e) => handleTableImagePaste(char.id, e) : undefined}
-                              readOnly={col.key === "image" && imageUploadingIds.has(char.id)}
-                              placeholder={col.key === "image" ? "URL or paste image" : undefined}
-                              className={`w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm outline-none focus:border-[#d4b96a] focus:bg-white ${col.className || ""} ${col.key === "image" && imageUploadingIds.has(char.id) ? "text-gray-400 italic" : ""}`}
-                            />
+                            {col.key === "character" ? (
+                              <div className="flex items-start gap-2">
+                                <input
+                                  type="text"
+                                  value={draft.character}
+                                  onChange={(e) => updateCell(char.id, "character", e.target.value)}
+                                  placeholder="𬙞"
+                                  className="w-14 shrink-0 rounded border border-transparent bg-transparent px-1.5 py-1 text-center text-2xl outline-none focus:border-[#d4b96a] focus:bg-white"
+                                />
+                                <div className="flex min-w-[8rem] flex-1 flex-col gap-1">
+                                  <div className="flex h-14 items-center justify-center overflow-hidden rounded border border-amber-100 bg-gray-50">
+                                    {(() => {
+                                      const thumb = draft.image || (isCharacterImage(draft.character) ? draft.character : null);
+                                      return thumb ? (
+                                        <img src={thumb} alt={draft.character} className="max-h-full max-w-full object-contain" />
+                                      ) : (
+                                        <span className="text-xs text-gray-300">no image</span>
+                                      );
+                                    })()}
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={imageUploadingIds.has(char.id) ? "Uploading..." : draft.image}
+                                    onChange={(e) => updateCell(char.id, "image", e.target.value)}
+                                    onPaste={(e) => handleTableImagePaste(char.id, e)}
+                                    readOnly={imageUploadingIds.has(char.id)}
+                                    placeholder="URL or paste image"
+                                    className={`w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs outline-none focus:border-[#d4b96a] focus:bg-white ${imageUploadingIds.has(char.id) ? "text-gray-400 italic" : ""}`}
+                                  />
+                                </div>
+                              </div>
+                            ) : (
+                              <input
+                                type={col.key === "stroke_count" ? "number" : "text"}
+                                value={draft[col.key]}
+                                onChange={(e) => updateCell(char.id, col.key, e.target.value)}
+                                className={`w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-sm outline-none focus:border-[#d4b96a] focus:bg-white ${col.className || ""}`}
+                              />
+                            )}
                           </td>
                         ))}
                       </tr>

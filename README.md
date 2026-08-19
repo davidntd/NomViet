@@ -49,10 +49,11 @@ A reference tool for researching and learning **Chữ Nôm**, the traditional Vi
 
 The schema and helper SQL live in the `supabase/` folder (kept out of version control — see below):
 
-- `character.sql` — the `Character` table
+- `character.sql` — the `Character` table (the `character` column holds either the glyph or an image URL; there is no separate unicode/image column)
 - `characters-storage.sql` — public storage bucket for character images
 - `search-by-reading.sql` — `search_characters_by_reading` RPC used by search
 - `reset-character-table.sql` — resets the table
+- `character-image-migration.sql` — migration for existing tables: merges `image` into `character`, drops the `unicode` and `image` columns (run once in the Supabase SQL Editor)
 
 ## Admin dashboard
 

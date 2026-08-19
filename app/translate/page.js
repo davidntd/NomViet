@@ -1,11 +1,33 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLanguage } from "../components/LanguageContext";
 import SectionHeader from "../components/SectionHeader";
 import { en } from "../locales/en";
 import { vn } from "../locales/vn";
 import { wordToQatt } from "../lib/qatt";
+import { isCharacterImage } from "../lib/character";
+
+function getLastWordIndex(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return -1;
+  return trimmed.split(/\s+/).length - 1;
+}
+
+// Each candidate's definition is shown in the active language:
+// Vietnamese mode → Nôm definition (fallback Hán Việt, then English),
+// English mode → English definition (fallback Nôm).
+function candidateDefinition(candidate, language) {
+  const nom = String(candidate?.nom_definition || "").trim();
+  const han = String(candidate?.han_viet_definition || "").trim();
+  const en = String(candidate?.definition || "").trim();
+  const isReal = (value) => value && value !== "N/A";
+
+  if (language === "vn") {
+    return isReal(nom) ? nom : isReal(han) ? han : isReal(en) ? en : "";
+  }
+  return isReal(en) ? en : isReal(nom) ? nom : "";
+}
 
 export default function TranslatePage() {
   const [inputText, setInputText] = useState("");
@@ -17,6 +39,50 @@ export default function TranslatePage() {
   const debounceSeq = useRef(0);
   const { language } = useLanguage();
   const t = language === "en" ? en : vn;
+
+  // IME-style candidate popup state (viet-to-nom only).
+  const [popupWord, setPopupWord] = useState("");
+  const [popupIndex, setPopupIndex] = useState(-1);
+  const [candidates, setCandidates] = useState([]);
+  const [selectedCandidate, setSelectedCandidate] = useState(0);
+  const popupDebounceRef = useRef(null);
+  const popupSeq = useRef(0);
+  const popupWordRef = useRef("");
+
+  // Popup is anchored right below the word being typed. A hidden mirror of the
+  // textarea measures where the caret is; the popup is placed at the BOTTOM of
+  // that text line (line-height below the caret), so it never covers the word.
+  const textareaRef = useRef(null);
+  const mirrorRef = useRef(null);
+  const caretMarkerRef = useRef(null);
+  const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
+
+  const lastSpaceIndex = (text) => {
+    const trimmedEnd = text.length - (text.length - text.trimEnd().length);
+    return text.lastIndexOf(" ", trimmedEnd - 1);
+  };
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    const mirror = mirrorRef.current;
+    const marker = caretMarkerRef.current;
+    if (!textarea || !mirror || !marker) return;
+    if (candidates.length === 0) return;
+
+    mirror.scrollTop = textarea.scrollTop;
+    const mirrorRect = mirror.getBoundingClientRect();
+    const markerRect = marker.getBoundingClientRect();
+
+    const fs = parseFloat(getComputedStyle(textarea).fontSize) || 24;
+    const lh = parseFloat(getComputedStyle(textarea).lineHeight) || fs * 1.5;
+
+    // The marker's top sits at the top of the caret's line box. Place the popup
+    // below the whole line: caret top + line height + a small gap.
+    setPopupPos({
+      top: Math.min(markerRect.top - mirrorRect.top + lh + 6, textarea.offsetHeight - 60),
+      left: Math.max(markerRect.left - mirrorRect.left, 0),
+    });
+  }, [candidates, popupWord]);
 
   // Fetch candidates for every word in parallel, tolerating individual failures
   // so one bad word never blanks the whole translation. A request-sequence guard
@@ -87,6 +153,29 @@ export default function TranslatePage() {
     setLoading(false);
   };
 
+  // Fetch candidates for the word currently being typed (shown in the popup).
+  const fetchPopupCandidates = async (word, index, seq) => {
+    if (!word) {
+      setCandidates([]);
+      return;
+    }
+
+    let matches = [];
+    try {
+      const res = await fetch(`/api/translate?reading=${encodeURIComponent(word)}`);
+      const data = await res.json();
+      matches = res.ok && Array.isArray(data.results) ? data.results : [];
+    } catch (err) {
+      console.error(`Candidate lookup failed for "${word}":`, err);
+    }
+
+    if (seq !== popupSeq.current) return;
+    setCandidates(matches);
+    setSelectedCandidate(0);
+    setPopupWord(word);
+    setPopupIndex(index);
+  };
+
   const handleInputChange = (e) => {
     const value = e.target.value;
     setInputText(value);
@@ -97,22 +186,67 @@ export default function TranslatePage() {
     );
     setLockedWords(newLocked);
 
+    // Main translation (debounced).
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const seq = ++debounceSeq.current;
     debounceRef.current = setTimeout(() => {
       if (direction === "viet-to-nom") translateVietToNom(value, newLocked, seq);
       else translateNomToViet(value, seq);
-    }, 400);
+    }, 350);
+
+    // Popup candidates for the word being typed (debounced, independent).
+    if (direction === "viet-to-nom") {
+      const lastIndex = getLastWordIndex(value);
+      const lastWord = lastIndex >= 0 ? value.trim().split(/\s+/)[lastIndex] : "";
+      popupWordRef.current = lastWord;
+
+      if (popupDebounceRef.current) clearTimeout(popupDebounceRef.current);
+      const popupSeqId = ++popupSeq.current;
+      popupDebounceRef.current = setTimeout(() => {
+        fetchPopupCandidates(lastWord, lastIndex, popupSeqId);
+      }, 250);
+    } else {
+      setCandidates([]);
+      setPopupWord("");
+      setPopupIndex(-1);
+    }
   };
 
   // User picks a Chữ Nôm meaning on the input side → the output word changes
   // from its QATT representation to the selected character.
   const applySuggestion = (index, char) => {
+    if (!char) return;
     const newLocked = { ...lockedWords, [index]: char };
     setLockedWords(newLocked);
     setOutputWords((prev) =>
       prev.map((w, i) => (i === index ? { ...w, character: char, selected: true } : w))
     );
+    setCandidates([]);
+    setPopupWord("");
+    setPopupIndex(-1);
+  };
+
+  const handlePopupKeyDown = (e) => {
+    if (candidates.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedCandidate((p) => (p + 1) % candidates.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedCandidate((p) => (p - 1 + candidates.length) % candidates.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const candidate = candidates[selectedCandidate];
+      if (candidate && popupIndex >= 0) applySuggestion(popupIndex, candidate.character);
+    } else if (/^[0-9]$/.test(e.key)) {
+      const num = e.key === "0" ? 9 : Number(e.key) - 1;
+      if (num < candidates.length) {
+        e.preventDefault();
+        const candidate = candidates[num];
+        if (candidate && popupIndex >= 0) applySuggestion(popupIndex, candidate.character);
+      }
+    }
   };
 
   const toggleDirection = () => {
@@ -121,9 +255,13 @@ export default function TranslatePage() {
     setInputText("");
     setOutputWords([]);
     setLockedWords({});
+    setCandidates([]);
+    setPopupWord("");
+    setPopupIndex(-1);
+    setSelectedCandidate(0);
   };
 
-  const hasCandidates = outputWords.some((w) => w.options?.length > 0);
+  const showPopup = direction === "viet-to-nom" && candidates.length > 0 && popupWord.trim() !== "";
 
   return (
     <div className="pattern-surround flex min-h-screen flex-col">
@@ -160,58 +298,73 @@ export default function TranslatePage() {
           </div>
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <div>
+            <div className="relative">
               <textarea
+                ref={textareaRef}
                 value={inputText}
                 onChange={handleInputChange}
+                onKeyDown={handlePopupKeyDown}
                 placeholder={direction === "viet-to-nom" ? t.typeVietnamese : t.pasteChuNom}
                 className="h-65 w-full resize-none rounded-xl border-2 border-[#a00000]/40 bg-white p-4 text-2xl text-gray-900 shadow-sm outline-none transition-colors focus:border-[#a00000]"
               />
 
-              {/* Chữ Nôm candidate selection lives on the INPUT side, associated
-                  with each word. The output only changes once the user picks. */}
-              {direction === "viet-to-nom" && hasCandidates && (
-                <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-white">
-                  <p className="border-b border-gray-100 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-[#a00000]">
-                    {t.multipleMatches}
-                  </p>
-                  {outputWords.map((w, i) =>
-                    w.options?.length ? (
-                      <div
-                        key={i}
-                        className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-0"
-                      >
-                        <span className="min-w-14 text-sm font-semibold text-gray-900">{w.word}</span>
-                        {w.options.length === 1 ? (
-                          <button
-                            type="button"
-                            onClick={() => applySuggestion(i, w.options[0].character)}
-                            className="flex items-center gap-2 rounded-md border border-[#a00000]/40 bg-white px-3 py-1 transition-colors hover:bg-[#a00000]/5"
-                            title={`${w.options[0].reading} — ${w.options[0].definition || ""}`}
-                          >
-                            <span className="font-han text-xl leading-none">{w.options[0].character}</span>
-                            <span className="text-xs text-gray-600">{w.options[0].reading}</span>
-                          </button>
-                        ) : (
-                          <select
-                            value={w.character || ""}
-                            onChange={(e) => applySuggestion(i, e.target.value)}
-                            aria-label={`Choose Chữ Nôm for ${w.word}`}
-                            className="max-w-52 cursor-pointer rounded-md border border-[#a00000]/40 bg-white px-2 py-1 text-sm text-gray-700 outline-none transition-colors hover:border-[#a00000] focus:border-[#a00000]"
-                          >
-                            <option value="" disabled>
-                              {w.character ? `✓ ${w.character}` : "—"}
-                            </option>
-                            {w.options.map((opt, j) => (
-                              <option key={j} value={opt.character}>
-                                {opt.character} · {opt.reading}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    ) : null
-                  )}
+              {/* Hidden mirror used to measure the caret position (never visible). */}
+              <div
+                ref={mirrorRef}
+                aria-hidden="true"
+                className="pointer-events-none invisible absolute left-0 top-0 w-full overflow-hidden whitespace-pre-wrap break-words rounded-xl border-2 p-4 text-2xl"
+              >
+                {inputText.slice(0, lastSpaceIndex(inputText) + 1)}
+                <span ref={caretMarkerRef} className="font-han">
+                  {popupWord || "\u200B"}
+                </span>
+              </div>
+
+              {/* IME-style candidate popup: anchored right below the typed word. */}
+              {showPopup && (
+                <div
+                  className="absolute z-20 overflow-hidden rounded-lg border border-gray-300 bg-[#f2f2f2] shadow-lg"
+                  style={{ top: popupPos.top, left: popupPos.left, right: 0 }}
+                >
+                  <div className="flex items-center justify-between border-b border-gray-300 bg-[#e8e8e8] px-3 py-1.5">
+                    <span className="text-xs font-semibold text-gray-700">
+                      {popupWord}
+                      <span className="ml-1 font-normal text-gray-500">{t.multipleMatches}</span>
+                    </span>
+                    <span className="text-[10px] text-gray-400">↑↓ · Enter</span>
+                  </div>
+                  <ul className="max-h-64 overflow-y-auto">
+                    {candidates.map((candidate, i) => (
+                      <li key={i} className="border-b border-gray-200 last:border-0">
+                        <button
+                          type="button"
+                          onClick={() => applySuggestion(popupIndex, candidate.character)}
+                          onMouseEnter={() => setSelectedCandidate(i)}
+                          className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
+                            i === selectedCandidate ? "bg-[#d4b96a]/40" : "hover:bg-[#d4b96a]/20"
+                          }`}
+                        >
+                          <span className="w-4 shrink-0 text-xs text-gray-400">{i === 9 ? 0 : i + 1}.</span>
+                          {isCharacterImage(candidate.character) ? (
+                            <img src={candidate.character} alt="" className="h-8 w-8 shrink-0 rounded border border-gray-300 object-contain bg-white" />
+                          ) : (
+                            <span className="font-han w-8 shrink-0 text-center text-xl leading-none text-gray-900">
+                              {candidate.character}
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-semibold text-gray-900">
+                              {candidate.character}
+                              <span className="ml-2 font-normal italic text-gray-600">{candidate.reading}</span>
+                            </span>
+                            {candidateDefinition(candidate, language) && (
+                              <span className="block truncate text-xs text-gray-500">→ {candidateDefinition(candidate, language)}</span>
+                            )}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

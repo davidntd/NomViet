@@ -5,7 +5,7 @@ import { createClient } from "../../lib/supabase-client";
 import Link from "next/link";
 import { useLanguage } from "../../components/LanguageContext";
 import SectionHeader from "../../components/SectionHeader";
-import { formatReadingList, variantTokenToCharacter } from "../../lib/character";
+import { formatReadingList, variantTokenToCharacter, isCharacterImage } from "../../lib/character";
 import { en } from "../../locales/en";
 import { vn } from "../../locales/vn";
 
@@ -19,16 +19,16 @@ export default function CharacterPage({ params }) {
 
   useEffect(() => {
     async function fetchCharacter() {
-      const { unicode } = await params;
-      const unicodeStr = `U+${unicode.toUpperCase()}`;
+      const { id } = await params;
+      const characterId = Number.parseInt(String(id), 10);
 
       const { data, error } = await supabase
         .from("Character")
         .select("*")
-        .eq("unicode", unicodeStr)
+        .eq("id", characterId)
         .single();
 
-      if (error || !data) {
+      if (error || !data || !Number.isInteger(characterId)) {
         setNotFound(true);
       } else {
         setCharacter(data);
@@ -63,9 +63,9 @@ export default function CharacterPage({ params }) {
   const nomReadings = formatReadingList(character.nom_reading);
   const hanVietDefinition = character.han_viet_definition?.trim() || "—";
   const nomDefinition = character.nom_definition?.trim() || "—";
+  const isImage = isCharacterImage(character.character);
 
   const hasVariants = character.variants && character.variants.length > 0;
-  const hasImage = character.image && character.image.trim() !== "";
 
   return (
     <div className="pattern-surround min-h-screen">
@@ -81,10 +81,10 @@ export default function CharacterPage({ params }) {
         </Link>
 
         <div className="mb-8 flex justify-center">
-          {hasImage ? (
+          {isImage ? (
             <div className="flex h-48 w-48 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50 shadow-sm">
               <img
-                src={character.image}
+                src={character.character}
                 alt={character.character}
                 loading="lazy"
                 decoding="async"
@@ -110,23 +110,19 @@ export default function CharacterPage({ params }) {
           </div>
           <div className="flex items-start gap-4 border-b border-gray-200 px-5 py-4">
             <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.definition}</span>
-            <span className="text-sm leading-relaxed text-gray-700">{character.definition || "—"}</span>
+            <span className="text-sm leading-relaxed text-gray-900">{character.definition || "—"}</span>
           </div>
           <div className="flex items-start gap-4 border-b border-gray-200 px-5 py-4">
             <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.hanVietDefinition}</span>
-            <span className="text-sm leading-relaxed text-gray-700">{hanVietDefinition}</span>
+            <span className="text-sm leading-relaxed text-gray-900">{hanVietDefinition}</span>
           </div>
           <div className="flex items-start gap-4 border-b border-gray-200 px-5 py-4">
             <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.nomDefinition}</span>
-            <span className="text-sm leading-relaxed text-gray-700">{nomDefinition}</span>
-          </div>
-          <div className="flex items-start gap-4 border-b border-gray-200 px-5 py-4">
-            <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.strokeCount}</span>
-            <span className="text-sm font-semibold text-gray-900">{character.stroke_count} {t.strokesUnit}</span>
+            <span className="text-sm leading-relaxed text-gray-900">{nomDefinition}</span>
           </div>
           <div className={`flex items-start gap-4 px-5 py-4 ${hasVariants ? "border-b border-gray-200" : ""}`}>
-            <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.unicode}</span>
-            <span className="font-mono text-sm font-semibold text-gray-900">{character.unicode}</span>
+            <span className="w-28 shrink-0 text-xs font-semibold uppercase tracking-[0.2em] text-[#a00000]">{t.strokeCount}</span>
+            <span className="text-sm font-semibold text-gray-900">{character.stroke_count} {t.strokesUnit}</span>
           </div>
 
           {hasVariants && (

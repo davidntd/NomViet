@@ -285,7 +285,7 @@ async function rankByShape(strokes, candidates) {
       const da = Math.abs((a.char.stroke_count ?? 0) - strokes.length);
       const db = Math.abs((b.char.stroke_count ?? 0) - strokes.length);
       if (da !== db) return da - db;
-      return String(a.char.unicode || "").localeCompare(String(b.char.unicode || ""));
+      return String(a.char.id ?? "").localeCompare(String(b.char.id ?? ""));
     })
     .map((entry) => entry.char);
 }
@@ -521,13 +521,13 @@ export default function DrawPage() {
                   {results.slice(0, 8).map((char) => (
                     <Link
                       key={char.id}
-                      href={`/character/${char.unicode.replace("U+", "")}?lang=${language}`}
+                      href={`/character/${char.id}?lang=${language}`}
                       className="group flex items-center gap-4 px-4 py-4 transition-colors hover:bg-white"
                     >
                       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white">
                         {hasCharacterImage(char) ? (
                           <img
-                            src={char.image}
+                            src={char.character}
                             alt={char.character}
                             loading="lazy"
                             decoding="async"
@@ -544,7 +544,7 @@ export default function DrawPage() {
                         <p className="truncate text-sm text-gray-600">
                           {displayDefinition(char, language)}
                         </p>
-                        <p className="mt-0.5 text-xs text-gray-500">{char.stroke_count} {t.strokesUnit} · {char.unicode}</p>
+                        <p className="mt-0.5 text-xs text-gray-500">{char.stroke_count} {t.strokesUnit}</p>
                       </div>
                       <svg className="shrink-0 text-gray-400 transition-colors group-hover:text-[#a00000]" width="15" height="15" viewBox="0 0 25 25" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <path d="m9 18 6-6-6-6" />

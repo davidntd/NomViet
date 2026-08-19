@@ -6,7 +6,6 @@ import {
   characterMatchesSearchFilter,
   isCharacterGlyphQuery,
   normalizeCharacterQuery,
-  parseUnicodeQuery,
   readingInColumnMatchesQuery,
   sortCharacters,
 } from "../../lib/character";
@@ -38,22 +37,12 @@ export async function GET(request) {
   }
 
   try {
-    const unicodeQuery = parseUnicodeQuery(query);
-    if (unicodeQuery) {
-      const character = await fetchCharacterByUnicode(unicodeQuery);
-      if (character) {
-        return NextResponse.json({
-          redirect: `/character/${character.unicode.replace("U+", "")}`,
-        });
-      }
-    }
-
     if (isCharacterGlyphQuery(query)) {
       const glyphMatches = await fetchCharactersByGlyph(query);
 
       if (glyphMatches.length === 1) {
         return NextResponse.json({
-          redirect: `/character/${glyphMatches[0].unicode.replace("U+", "")}`,
+          redirect: `/character/${glyphMatches[0].id}`,
         });
       }
 
@@ -81,21 +70,6 @@ export async function GET(request) {
     console.error("Search error:", error);
     return NextResponse.json({ error: "Search failed" }, { status: 500 });
   }
-}
-
-async function fetchCharacterByUnicode(unicode) {
-  const { data, error } = await supabase
-    .from("Character")
-    .select("unicode")
-    .eq("unicode", unicode)
-    .limit(1)
-    .maybeSingle();
-
-  if (error) {
-    throw error;
-  }
-
-  return data;
 }
 
 async function fetchCharactersByGlyph(query) {

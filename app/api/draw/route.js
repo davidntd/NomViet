@@ -17,7 +17,7 @@ export async function GET(request) {
   // override the drawn count. The exact-count bucket gets the most candidates
   // — it most often holds the target — and small buckets are fetched whole.
   const COLS =
-    "id,character,unicode,stroke_count,nom_reading,han_viet_reading,definition,nom_definition,han_viet_definition,image,variants";
+    "id,character,stroke_count,nom_reading,han_viet_reading,definition,nom_definition,han_viet_definition,variants";
   const RANGE = 5;
   // Cap per bucket, indexed by distance from the drawn count (0 = exact match).
   const BUCKET_CAPS = [300, 120, 80, 60, 50, 40];

@@ -38,7 +38,6 @@ export const vn = {
   hanVietDefinition: "Định nghĩa Hán Việt",
   nomDefinition: "Định nghĩa Nôm",
   strokeCount: "Số nét",
-  unicode: "Unicode",
   variants: "Biến thể",
   strokesUnit: "nét",
   

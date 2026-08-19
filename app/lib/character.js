@@ -65,15 +65,9 @@ export function characterGlyphMatchesQuery(char, query) {
   return variants.some((variant) => normalizeCharacterQuery(variant) === normalized);
 }
 
-export function parseUnicodeQuery(query) {
-  const trimmed = String(query ?? "").trim();
-  if (/^U\+[0-9A-F]{4,6}$/i.test(trimmed)) {
-    return trimmed.toUpperCase();
-  }
-  if (/^[0-9A-F]{4,6}$/i.test(trimmed)) {
-    return `U+${trimmed.toUpperCase()}`;
-  }
-  return null;
+/** Whether a character value is an image URL (a picture of the character). */
+export function isCharacterImage(value) {
+  return /^https?:\/\//.test(String(value ?? "").trim());
 }
 
 /** Convert a variant token (e.g. "U+5B57" or a raw character) to a normalized U+XXXX unicode string. */
@@ -137,15 +131,10 @@ export function readingMatchesQuery(char, query) {
   );
 }
 
-/** Admin list search: glyph/unicode exact match, precise reading match when the query is an exact reading somewhere. */
+/** Admin list search: glyph exact match, precise reading match when the query is an exact reading somewhere. */
 export function adminCharacterMatchesQuery(char, query, { readingMatchExists = false } = {}) {
   const normalized = normalizeCharacterQuery(query);
   if (!normalized) return false;
-
-  const unicodeQuery = parseUnicodeQuery(query);
-  if (unicodeQuery) {
-    return String(char?.unicode || "").toUpperCase() === unicodeQuery;
-  }
 
   if (isCharacterGlyphQuery(query)) {
     return characterGlyphMatchesQuery(char, query);
@@ -157,11 +146,7 @@ export function adminCharacterMatchesQuery(char, query, { readingMatchExists = f
     return readingMatchesQuery(char, normalized);
   }
 
-  const lowerQuery = normalized.toLowerCase();
-  const unicode = String(char?.unicode || "").toLowerCase();
-  if (unicode && (unicode === lowerQuery || unicode.includes(lowerQuery))) return true;
-
-  return searchableDefinitions(char).some((definition) => definition.toLowerCase().includes(lowerQuery));
+  return searchableDefinitions(char).some((definition) => definition.toLowerCase().includes(normalized.toLowerCase()));
 }
 
 export function hanVietReadingMatchesQuery(char, query) {
@@ -241,7 +226,7 @@ export function getSortReading(char) {
   const han = pickFirst(primaryHanVietReading(char));
   if (han) return han;
 
-  return char?.character || char?.unicode || "";
+  return char?.character || "";
 }
 
 export function stripVietnameseTones(value) {
@@ -314,7 +299,7 @@ function compareAlphabet(a, b) {
 
   if (baseComparison !== 0) return baseComparison;
 
-  return (a.unicode || "").localeCompare(b.unicode || "", "en", { sensitivity: "base" });
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""), "en", { sensitivity: "base" });
 }
 
 function compareAlphabetStroke(a, b) {
@@ -331,7 +316,7 @@ function compareAlphabetStroke(a, b) {
   const strokeDiff = (a.stroke_count || 0) - (b.stroke_count || 0);
   if (strokeDiff !== 0) return strokeDiff;
 
-  return (a.unicode || "").localeCompare(b.unicode || "", "en", { sensitivity: "base" });
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""), "en", { sensitivity: "base" });
 }
 
 function compareAlphabetToneStroke(a, b) {
@@ -351,7 +336,7 @@ function compareAlphabetToneStroke(a, b) {
   const strokeDiff = (a.stroke_count || 0) - (b.stroke_count || 0);
   if (strokeDiff !== 0) return strokeDiff;
 
-  return (a.unicode || "").localeCompare(b.unicode || "", "en", { sensitivity: "base" });
+  return String(a.id ?? "").localeCompare(String(b.id ?? ""), "en", { sensitivity: "base" });
 }
 
 function compareStroke(a, b) {
@@ -390,9 +375,9 @@ export function isGifImage(value) {
   return trimmed.endsWith(".gif") || trimmed.includes(".gif?");
 }
 
-/** Whether a character row has a usable image URL. */
+/** Whether a character row is represented by a picture (its value is an image URL). */
 export function hasCharacterImage(char) {
-  return Boolean(char?.image && String(char.image).trim() !== "");
+  return isCharacterImage(char?.character);
 }
 
 export function isAllowedImageFile(file) {

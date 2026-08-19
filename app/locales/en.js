@@ -38,7 +38,6 @@ export const en = {
   hanVietDefinition: "Hán Việt definition",
   nomDefinition: "Nôm definition",
   strokeCount: "Stroke Count",
-  unicode: "Unicode",
   variants: "Variants",
   strokesUnit: "strokes",
   

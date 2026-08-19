@@ -1,4 +1,4 @@
-import { variantTokenToCharacter, variantTokenToUnicode } from "../../lib/character";
+import { variantTokenToCharacter } from "../../lib/character";
 
 const MISSING_READING = "N/A";
 const MISSING_DEFINITION = "N/A";
@@ -7,35 +7,28 @@ export function normalizeVariantsToCharacters(variants) {
   return [...new Set((variants || []).map((token) => variantTokenToCharacter(token)).filter(Boolean))];
 }
 
-export function variantListToUnicodes(variants) {
-  return [
-    ...new Set(
-      (variants || [])
-        .map((token) => variantTokenToUnicode(token))
-        .filter(Boolean)
-    ),
-  ];
+export function variantListToCharacters(variants) {
+  return [...new Set(normalizeVariantsToCharacters(variants))];
 }
 
-export function getRemovedVariantUnicodes(previousVariants, nextVariants) {
-  const nextSet = new Set(variantListToUnicodes(nextVariants));
-  return variantListToUnicodes(previousVariants).filter((unicode) => !nextSet.has(unicode));
+export function getRemovedVariantCharacters(previousVariants, nextVariants) {
+  const nextSet = new Set(variantListToCharacters(nextVariants));
+  return variantListToCharacters(previousVariants).filter((glyph) => !nextSet.has(glyph));
 }
 
-function normalizeUnicode(value) {
+function normalizeGlyph(value) {
   return String(value ?? "")
     .trim()
-    .toUpperCase();
+    .normalize("NFC");
 }
 
 export function buildGroupMembersFromRows(rows) {
   const map = new Map();
 
   for (const row of rows) {
-    if (!row?.unicode) continue;
-    map.set(normalizeUnicode(row.unicode), {
+    if (!row?.character) continue;
+    map.set(normalizeGlyph(row.character), {
       character: row.character,
-      unicode: row.unicode,
     });
   }
 
@@ -45,21 +38,19 @@ export function buildGroupMembersFromRows(rows) {
 /** Each member lists every other group member's character glyph (never itself). */
 export function buildVariantsForMember(memberRow, groupMembers) {
   return groupMembers
-    .filter((member) => normalizeUnicode(member.unicode) !== normalizeUnicode(memberRow.unicode))
+    .filter((member) => normalizeGlyph(member.character) !== normalizeGlyph(memberRow.character))
     .map((member) => member.character);
 }
 
 export function buildVariantSyncPayload(sourcePayload, variantRow, groupMembers) {
   return {
     character: variantRow.character,
-    unicode: variantRow.unicode,
     han_viet_reading: [...(sourcePayload.han_viet_reading || [])],
     nom_reading: [...(sourcePayload.nom_reading || [])],
     definition: sourcePayload.definition,
     han_viet_definition: sourcePayload.han_viet_definition,
     nom_definition: sourcePayload.nom_definition,
     stroke_count: variantRow.stroke_count ?? 0,
-    image: variantRow.image ?? null,
     variants: buildVariantsForMember(variantRow, groupMembers),
   };
 }
@@ -67,32 +58,24 @@ export function buildVariantSyncPayload(sourcePayload, variantRow, groupMembers)
 function buildRemovedVariantResetPayload(row) {
   return {
     character: row.character,
-    unicode: row.unicode,
     han_viet_reading: [MISSING_READING],
     nom_reading: [MISSING_READING],
     definition: MISSING_DEFINITION,
     han_viet_definition: MISSING_DEFINITION,
     nom_definition: MISSING_DEFINITION,
     stroke_count: 0,
-    image: null,
     variants: [],
   };
 }
 
 async function lookupVariantRows(admin, variantList) {
-  const unicodes = [
-    ...new Set(
-      normalizeVariantsToCharacters(variantList)
-        .map((token) => variantTokenToUnicode(token))
-        .filter(Boolean)
-    ),
-  ];
+  const characters = variantListToCharacters(variantList);
 
-  if (unicodes.length === 0) {
+  if (characters.length === 0) {
     return [];
   }
 
-  const { data, error } = await admin.from("Character").select("*").in("unicode", unicodes);
+  const { data, error } = await admin.from("Character").select("*").in("character", characters);
 
   if (error) {
     throw new Error(`Variant sync lookup failed: ${error.message}`);
@@ -101,15 +84,15 @@ async function lookupVariantRows(admin, variantList) {
   return data || [];
 }
 
-async function resetRemovedVariantCharacters(admin, removedUnicodes) {
-  if (removedUnicodes.length === 0) {
+async function resetRemovedVariantCharacters(admin, removedCharacters) {
+  if (removedCharacters.length === 0) {
     return [];
   }
 
   const { data: rows, error } = await admin
     .from("Character")
     .select("*")
-    .in("unicode", removedUnicodes);
+    .in("character", removedCharacters);
 
   if (error) {
     throw new Error(`Removed variant lookup failed: ${error.message}`);
@@ -126,7 +109,7 @@ async function resetRemovedVariantCharacters(admin, removedUnicodes) {
       .single();
 
     if (updateError) {
-      throw new Error(`Removed variant reset failed for ${row.unicode}: ${updateError.message}`);
+      throw new Error(`Removed variant reset failed for ${row.character}: ${updateError.message}`);
     }
 
     reset.push(data);
@@ -136,7 +119,7 @@ async function resetRemovedVariantCharacters(admin, removedUnicodes) {
 }
 
 async function findParentsReferencingCharacter(admin, row) {
-  const lookupTokens = [row.unicode, row.character, variantTokenToCharacter(row.unicode)].filter(Boolean);
+  const lookupTokens = [...new Set([row.character, variantTokenToCharacter(row.character)].filter(Boolean))];
 
   const parents = new Map();
 
@@ -181,7 +164,7 @@ async function syncVariantGroup(admin, sourceRow, sourcePayload, variantList, op
       .single();
 
     if (error) {
-      throw new Error(`Variant sync failed for ${row.unicode}: ${error.message}`);
+      throw new Error(`Variant sync failed for ${row.character}: ${error.message}`);
     }
 
     synced.push(data);
@@ -199,7 +182,7 @@ async function syncVariantGroup(admin, sourceRow, sourcePayload, variantList, op
       .single();
 
     if (error) {
-      throw new Error(`Variant sync failed for ${row.unicode}: ${error.message}`);
+      throw new Error(`Variant sync failed for ${row.character}: ${error.message}`);
     }
 
     synced.push(data);
@@ -215,7 +198,7 @@ async function syncVariantGroup(admin, sourceRow, sourcePayload, variantList, op
       .single();
 
     if (error) {
-      throw new Error(`Variant sync failed for ${sourceRow.unicode}: ${error.message}`);
+      throw new Error(`Variant sync failed for ${sourceRow.character}: ${error.message}`);
     }
 
     synced.push(data);
@@ -242,9 +225,9 @@ export async function syncAfterAdminUpdate(admin, sourceRow, sourcePayload, prev
   };
 
   if (previousRow?.id === sourceRow.id) {
-    const removedUnicodes = getRemovedVariantUnicodes(previousRow.variants, normalizedPayload.variants);
-    if (removedUnicodes.length > 0) {
-      synced.push(...(await resetRemovedVariantCharacters(admin, removedUnicodes)));
+    const removedCharacters = getRemovedVariantCharacters(previousRow.variants, normalizedPayload.variants);
+    if (removedCharacters.length > 0) {
+      synced.push(...(await resetRemovedVariantCharacters(admin, removedCharacters)));
     }
   }
 
