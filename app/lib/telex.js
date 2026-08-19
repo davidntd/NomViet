@@ -181,19 +181,6 @@ export function telexInsert(text, start, end, char) {
 }
 
 /**
- * Backspace: with a selection, delete the selection; otherwise delete the
- * character before the caret. (Tone-undo is handled separately by
- * telexUndoTone so it only fires when the last keystroke was a tone key.)
- */
-export function telexBackspace(text, start, end) {
-  if (start !== end) {
-    return { value: text.slice(0, start) + text.slice(end), caret: start };
-  }
-  if (start === 0) return { value: text, caret: 0 };
-  return { value: text.slice(0, start - 1) + text.slice(start), caret: start - 1 };
-}
-
-/**
  * Undo the tone on the main vowel of the word being typed ("nước" + ⌫ → "nươc"
  * when the tone was the last keystroke). No-op if the word has no tone.
  */

@@ -31,7 +31,6 @@ export const vn = {
   
   // Character Page
   characterInformation: "Thông Tin Chữ",
-  reading: "Cách đọc",
   hanReading: "Cách đọc Hán Việt",
   nomReading: "Cách đọc Nôm",
   definition: "Định nghĩa tiếng Anh",
@@ -72,13 +71,12 @@ export const vn = {
   
   // Translate Page
   translateTitle: "Phiên Dịch",
-  translateDescription: "Chuyển đổi giữa tiếng Việt và Chữ Nôm",
+  translateDescription: "Chuyển đổi giữa tiếng Việt và Quốc Âm Tân Tự/Chữ Nôm",
   vietnamese: "Tiếng Việt",
   chuNom: "Quốc Âm Tân Tự và Nôm",
   typeVietnamese: "Nhập văn bản tiếng Việt...",
   pasteChuNom: "Dán chữ Nôm...",
   translationWillAppear: "Bản dịch sẽ xuất hiện ở đây...",
-  multipleMatches: "Nhiều kết quả trùng — hãy chọn một:",
   
   // NotFound
   pageNotFound: "Không Tìm Thấy Trang",

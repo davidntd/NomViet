@@ -32,12 +32,6 @@
  * the equivalent nasal final plus the "nhập" slot, e.g. "lúc" = (l, ung, sắc nhập).
  */
 
-// 22 "cán tự" (initial consonants), order matches the font's syllable blocks.
-export const QATT_INITIALS = [
-  "", "ng", "h", "g", "c", "l", "tr", "đ", "n", "t", "th", "nh", "ch",
-  "d", "x", "kh", "s", "r", "m", "b", "v", "ph",
-];
-
 // 110 "chi tự" (rhymes), order matches the font's syllable blocks.
 export const QATT_FINALS = [
   "oe", "oan", "ung", "uy", "âm",
@@ -64,8 +58,7 @@ export const QATT_FINALS = [
   "u", "uôn", "uôi", "uêu", "oeo",
 ];
 
-// Codepoint bases inside the GotichQATT font (verified from the font's cmap).
-const BASE_SYLLABLE_CP = 0x100568; // Block 4: plain syllable characters
+// Codepoint base inside the GotichQATT font (verified from the font's cmap).
 const TONED_SYLLABLE_CP = 0x100f36; // Block 5: syllable * 8 tone slots
 
 // Vietnamese tone marks (combining diacritics after NFD normalization).
@@ -252,11 +245,6 @@ export function qattCharForSyllable(syllable) {
   return String.fromCodePoint(TONED_SYLLABLE_CP + syllable.syllableIndex * 8 + syllable.slot);
 }
 
-/** The plain (no tone mark) QATT character for a decomposed syllable. */
-export function qattPlainChar(syllableIndex) {
-  return String.fromCodePoint(BASE_SYLLABLE_CP + syllableIndex);
-}
-
 /**
  * Best-effort fallback: map a letter that has no Vietnamese syllable to the
  * closest Vietnamese syllable (letter names / sounds), so any input can still
@@ -296,19 +284,4 @@ export function wordToQatt(word) {
   return out;
 }
 
-/**
- * Convert a whole piece of Vietnamese text to QATT, preserving spaces and
- * punctuation.
- */
-export function vietnameseToQatt(text) {
-  if (!text) return "";
-  // Split into words (letters incl. Vietnamese diacritics) and everything else.
-  const tokens = String(text).match(/[\p{L}\p{M}]+|[^\p{L}\p{M}]/gu) || [];
-  return tokens.map((tok) => (/^[\p{L}\p{M}]+$/u.test(tok) ? wordToQatt(tok) : tok)).join("");
-}
 
-/** True when a character lives in the GotichQATT font's PUA range. */
-export function isQattChar(ch) {
-  const cp = ch.codePointAt(0);
-  return cp >= 0x100000 && cp <= 0x105d95;
-}

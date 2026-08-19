@@ -8,10 +8,57 @@ import { vn } from "../locales/vn";
 import { wordToQatt } from "../lib/qatt";
 import { isCharacterImage } from "../lib/character";
 
+// Split text into translatable words (letter/mark runs), punctuation/symbols,
+// and whitespace. Word indices are stable, so the candidate popup and locked
+// selections stay aligned with the translated words.
+function tokenize(text) {
+  const tokens = [];
+  const re = /[\p{L}\p{M}]+|\s+|[^\p{L}\p{M}\s]+/gu;
+  let m;
+  while ((m = re.exec(text))) {
+    const value = m[0];
+    if (/^[\p{L}\p{M}]+$/u.test(value)) tokens.push({ type: "word", value });
+    else if (/^\s+$/.test(value)) tokens.push({ type: "space", value });
+    else tokens.push({ type: "punct", value });
+  }
+  return tokens;
+}
+
+const getWords = (text) =>
+  tokenize(text)
+    .filter((t) => t.type === "word")
+    .map((t) => t.value);
+
 function getLastWordIndex(text) {
-  const trimmed = text.trim();
-  if (!trimmed) return -1;
-  return trimmed.split(/\s+/).length - 1;
+  return getWords(text).length - 1;
+}
+
+// Punctuation is rendered with its Chinese (full-width) form where one exists,
+// so it displays correctly alongside the Chữ Nôm characters.
+const CHINESE_PUNCT = {
+  ".": "。", ",": "，", "!": "！", "?": "？", ":": "：", ";": "；",
+  "(": "（", ")": "）", "[": "［", "]": "］", "{": "｛", "}": "｝",
+  "<": "＜", ">": "＞", "%": "％", "@": "＠", "#": "＃", "&": "＆",
+  "*": "＊", "+": "＋", "=": "＝", "^": "＾", "_": "＿", "|": "｜",
+  "~": "～", "`": "｀", "$": "＄",
+};
+
+function toChinesePunct(value) {
+  if (value === "...") return "……";
+  return [...value].map((ch) => CHINESE_PUNCT[ch] || ch).join("");
+}
+
+// Fetch the Nôm characters that read as `reading` from the translate API,
+// tolerating failures so one bad word never blanks the whole translation.
+async function fetchReadingMatches(reading) {
+  try {
+    const res = await fetch(`/api/translate?reading=${encodeURIComponent(reading)}`);
+    const data = await res.json();
+    return res.ok && Array.isArray(data.results) ? data.results : [];
+  } catch (err) {
+    console.error(`Translate lookup failed for "${reading}":`, err);
+    return [];
+  }
 }
 
 // Each candidate's definition is shown in the active language:
@@ -47,7 +94,20 @@ export default function TranslatePage() {
   const [selectedCandidate, setSelectedCandidate] = useState(0);
   const popupDebounceRef = useRef(null);
   const popupSeq = useRef(0);
-  const popupWordRef = useRef("");
+  const popupRef = useRef(null);
+
+  // Clicking anywhere that is not one of the candidate rows closes the popup.
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (popupRef.current && !popupRef.current.contains(e.target)) {
+        setCandidates([]);
+        setPopupWord("");
+        setPopupIndex(-1);
+      }
+    };
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, []);
 
   // Popup is anchored right below the word being typed. A hidden mirror of the
   // textarea measures where the caret is; the popup is placed at the BOTTOM of
@@ -57,10 +117,7 @@ export default function TranslatePage() {
   const caretMarkerRef = useRef(null);
   const [popupPos, setPopupPos] = useState({ top: 0, left: 0 });
 
-  const lastSpaceIndex = (text) => {
-    const trimmedEnd = text.length - (text.length - text.trimEnd().length);
-    return text.lastIndexOf(" ", trimmedEnd - 1);
-  };
+  const lastSpaceIndex = (text) => text.trimEnd().lastIndexOf(" ");
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -91,36 +148,34 @@ export default function TranslatePage() {
     if (!text.trim()) { setOutputWords([]); return; }
     setLoading(true);
 
-    const words = text.trim().split(/\s+/);
+    const tokens = tokenize(text);
+    let wordIndex = 0;
     const results = await Promise.all(
-      words.map(async (word, i) => {
+      tokens.map(async (tok) => {
+        if (tok.type === "punct") {
+          // Render punctuation in its Chinese/full-width form.
+          return { type: "punct", value: toChinesePunct(tok.value) };
+        }
+        if (tok.type === "space") {
+          // Spaces are dropped from the output (characters run together);
+          // line breaks are preserved as breaks.
+          return { type: "space", value: tok.value };
+        }
+
+        const i = wordIndex++;
+        const word = tok.value;
         // Quốc Âm Tân Tự is always the initial output (rendered with GotichQATT).
         const qatt = wordToQatt(word);
 
         if (locked[i]) {
           // The user has already chosen a Chữ Nôm character for this word.
-          return { word, qatt, character: locked[i], options: [], selected: true };
-        }
-
-        let matches = [];
-        try {
-          const res = await fetch(`/api/translate?reading=${encodeURIComponent(word)}`);
-          const data = await res.json();
-          matches = res.ok && Array.isArray(data.results) ? data.results : [];
-        } catch (err) {
-          console.error(`Translate lookup failed for "${word}":`, err);
+          return { type: "word", wordIndex: i, word, qatt, character: locked[i] };
         }
 
         // character stays null until the user explicitly picks a meaning, so the
-        // output keeps showing the QATT representation.
-        return {
-          word,
-          qatt,
-          character: null,
-          options: matches,
-          multiple: matches.length > 1,
-          selected: false,
-        };
+        // output keeps showing the QATT representation. (Candidates are fetched
+        // on demand by the popup — fetchPopupCandidates — not here.)
+        return { type: "word", wordIndex: i, word, qatt, character: null };
       })
     );
 
@@ -160,14 +215,7 @@ export default function TranslatePage() {
       return;
     }
 
-    let matches = [];
-    try {
-      const res = await fetch(`/api/translate?reading=${encodeURIComponent(word)}`);
-      const data = await res.json();
-      matches = res.ok && Array.isArray(data.results) ? data.results : [];
-    } catch (err) {
-      console.error(`Candidate lookup failed for "${word}":`, err);
-    }
+    const matches = await fetchReadingMatches(word);
 
     if (seq !== popupSeq.current) return;
     setCandidates(matches);
@@ -180,7 +228,7 @@ export default function TranslatePage() {
     const value = e.target.value;
     setInputText(value);
 
-    const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0;
+    const wordCount = getWords(value).length;
     const newLocked = Object.fromEntries(
       Object.entries(lockedWords).filter(([i]) => Number(i) < wordCount)
     );
@@ -196,15 +244,22 @@ export default function TranslatePage() {
 
     // Popup candidates for the word being typed (debounced, independent).
     if (direction === "viet-to-nom") {
-      const lastIndex = getLastWordIndex(value);
-      const lastWord = lastIndex >= 0 ? value.trim().split(/\s+/)[lastIndex] : "";
-      popupWordRef.current = lastWord;
+      // A trailing space means the user moved past the word: close the popup.
+      // Backspacing the space re-enters the word, so the fetch below re-opens it.
+      if (/\s$/.test(value)) {
+        setCandidates([]);
+        setPopupWord("");
+        setPopupIndex(-1);
+      } else {
+        const lastIndex = getLastWordIndex(value);
+        const lastWord = lastIndex >= 0 ? getWords(value)[lastIndex] : "";
 
-      if (popupDebounceRef.current) clearTimeout(popupDebounceRef.current);
-      const popupSeqId = ++popupSeq.current;
-      popupDebounceRef.current = setTimeout(() => {
-        fetchPopupCandidates(lastWord, lastIndex, popupSeqId);
-      }, 250);
+        if (popupDebounceRef.current) clearTimeout(popupDebounceRef.current);
+        const popupSeqId = ++popupSeq.current;
+        popupDebounceRef.current = setTimeout(() => {
+          fetchPopupCandidates(lastWord, lastIndex, popupSeqId);
+        }, 250);
+      }
     } else {
       setCandidates([]);
       setPopupWord("");
@@ -219,7 +274,9 @@ export default function TranslatePage() {
     const newLocked = { ...lockedWords, [index]: char };
     setLockedWords(newLocked);
     setOutputWords((prev) =>
-      prev.map((w, i) => (i === index ? { ...w, character: char, selected: true } : w))
+      prev.map((w) =>
+        w.type === "word" && w.wordIndex === index ? { ...w, character: char } : w
+      )
     );
     setCandidates([]);
     setPopupWord("");
@@ -239,6 +296,11 @@ export default function TranslatePage() {
       e.preventDefault();
       const candidate = candidates[selectedCandidate];
       if (candidate && popupIndex >= 0) applySuggestion(popupIndex, candidate.character);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setCandidates([]);
+      setPopupWord("");
+      setPopupIndex(-1);
     } else if (/^[0-9]$/.test(e.key)) {
       const num = e.key === "0" ? 9 : Number(e.key) - 1;
       if (num < candidates.length) {
@@ -323,40 +385,31 @@ export default function TranslatePage() {
               {/* IME-style candidate popup: anchored right below the typed word. */}
               {showPopup && (
                 <div
-                  className="absolute z-20 overflow-hidden rounded-lg border border-gray-300 bg-[#f2f2f2] shadow-lg"
+                  ref={popupRef}
+                  className="absolute z-20 overflow-hidden rounded-xl border-2 border-[#a00000]/40 bg-white shadow-lg"
                   style={{ top: popupPos.top, left: popupPos.left, right: 0 }}
                 >
-                  <div className="flex items-center justify-between border-b border-gray-300 bg-[#e8e8e8] px-3 py-1.5">
-                    <span className="text-xs font-semibold text-gray-700">
-                      {popupWord}
-                      <span className="ml-1 font-normal text-gray-500">{t.multipleMatches}</span>
-                    </span>
-                    <span className="text-[10px] text-gray-400">↑↓ · Enter</span>
-                  </div>
-                  <ul className="max-h-64 overflow-y-auto">
+                  <ul className="max-h-64 overflow-y-auto py-1">
                     {candidates.map((candidate, i) => (
-                      <li key={i} className="border-b border-gray-200 last:border-0">
+                      <li key={i}>
                         <button
                           type="button"
                           onClick={() => applySuggestion(popupIndex, candidate.character)}
                           onMouseEnter={() => setSelectedCandidate(i)}
                           className={`flex w-full items-center gap-3 px-3 py-1.5 text-left transition-colors ${
-                            i === selectedCandidate ? "bg-[#d4b96a]/40" : "hover:bg-[#d4b96a]/20"
+                            i === selectedCandidate ? "bg-gray-200" : "hover:bg-gray-100"
                           }`}
                         >
-                          <span className="w-4 shrink-0 text-xs text-gray-400">{i === 9 ? 0 : i + 1}.</span>
+                          <span className="w-4 shrink-0 text-xs font-semibold text-[#a00000]">{i === 9 ? 0 : i + 1}.</span>
                           {isCharacterImage(candidate.character) ? (
-                            <img src={candidate.character} alt="" className="h-8 w-8 shrink-0 rounded border border-gray-300 object-contain bg-white" />
+                            <img src={candidate.character} alt="" className="h-8 w-8 shrink-0 rounded border border-[#a00000]/30 object-contain bg-white" />
                           ) : (
                             <span className="font-han w-8 shrink-0 text-center text-xl leading-none text-gray-900">
                               {candidate.character}
                             </span>
                           )}
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-gray-900">
-                              {candidate.character}
-                              <span className="ml-2 font-normal italic text-gray-600">{candidate.reading}</span>
-                            </span>
+                            <span className="block truncate text-sm italic text-gray-600">{candidate.reading}</span>
                             {candidateDefinition(candidate, language) && (
                               <span className="block truncate text-xs text-gray-500">→ {candidateDefinition(candidate, language)}</span>
                             )}
@@ -377,25 +430,40 @@ export default function TranslatePage() {
                   </div>
                 ) : outputWords.length === 0 ? (
                   <p className="text-sm text-gray-400">{t.translationWillAppear}</p>
-                ) : (
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                    {outputWords.map((w, i) =>
-                      direction === "viet-to-nom" ? (
+                ) : direction === "viet-to-nom" ? (
+                  <div className="text-2xl leading-relaxed text-gray-900">
+                    {outputWords.map((w, i) => {
+                      if (w.type === "space") {
+                        // No spaces between characters — only line breaks survive.
+                        return /\n/.test(w.value) ? <br key={i} /> : null;
+                      }
+                      if (w.type === "punct") {
+                        return (
+                          <span key={i} className="font-han text-2xl leading-none">
+                            {w.value}
+                          </span>
+                        );
+                      }
+                      return (
                         <span
                           key={i}
-                          className={`leading-none text-gray-900 ${
+                          className={`leading-none ${
                             w.character ? "font-han text-2xl" : "font-qatt text-3xl"
                           }`}
                           title={w.word}
                         >
                           {w.character || w.qatt}
                         </span>
-                      ) : (
-                        <span key={i} className="font-han text-2xl leading-none text-gray-900">
-                          {w.reading || w.word}
-                        </span>
-                      )
-                    )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-2xl leading-relaxed text-gray-900">
+                    {outputWords.map((w, i) => (
+                      <span key={i} className="font-han text-2xl leading-none">
+                        {w.reading || w.word}
+                      </span>
+                    ))}
                   </div>
                 )}
               </div>

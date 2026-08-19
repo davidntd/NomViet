@@ -31,7 +31,6 @@ export const en = {
   
   // Character Page
   characterInformation: "Character Information",
-  reading: "Reading",
   hanReading: "Hán Việt reading",
   nomReading: "Nôm reading",
   definition: "English definition",
@@ -72,13 +71,12 @@ export const en = {
   
   // Translate Page
   translateTitle: "Translate",
-  translateDescription: "Convert between Vietnamese and Chữ Nôm",
+  translateDescription: "Convert between Vietnamese and Quốc Âm Tân Tự/Chữ Nôm",
   vietnamese: "Vietnamese",
   chuNom: "Quốc Âm Tân Tự and Nôm",
   typeVietnamese: "Type Vietnamese text...",
   pasteChuNom: "Paste Chữ Nôm characters...",
   translationWillAppear: "Translation will appear here...",
-  multipleMatches: "Multiple matches — pick one:",
   
   // NotFound
   pageNotFound: "Page Not Found",
