@@ -7,9 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "import:cjk": "node scripts/import-cjk-characters.js",
-    "import:thaiphong-hvdic": "node scripts/import-thaiphong-hvdic.js"
+    "lint": "eslint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.2",
